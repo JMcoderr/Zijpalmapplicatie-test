@@ -41,7 +41,7 @@
             </fieldset>
 
             <fieldset class="charity-section">
-                <legend><span class="charity-step">2</span> Jouw uitbetaling</legend>
+                <legend><span class="charity-step">2</span> Uitbetaling aan jou</legend>
                 <p class="charity-section-intro">Vul het rekeningnummer in waarop je de bijdrage wilt ontvangen.</p>
                 <div class="charity-field">
                     <label for="account-name">Naam rekeninghouder <span aria-hidden="true">*</span></label>
