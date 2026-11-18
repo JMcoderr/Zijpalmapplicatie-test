@@ -1,0 +1,65 @@
+<?php
+// This file is part of the app logic and has a short comment so it is easier to read.
+
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Casts\Attribute;
+use Illuminate\Support\Facades\Storage;
+
+class Report extends Model
+{
+    /** @use HasFactory<\Database\Factories\UserFactory> */
+    use HasFactory;
+
+    protected $table = 'reports';
+    protected $fillable = [
+        'activity_id',
+        'content_id',
+        'archived',
+        'year',
+        'imagePath'
+    ];
+
+    /**
+     * Get the report cover image URL.
+     */
+    protected function image(): Attribute
+    {
+        return Attribute::make(
+            get: fn () => $this->imagePath ? asset('storage/' . ltrim($this->imagePath, '/')) : null,
+        );
+    }
+
+    public function activity()
+    {
+        return $this->belongsTo(Activity::class);
+    }
+
+    public function content()
+    {
+        return $this->belongsTo(Content::class);
+    }
+
+    /**
+     * When deleting a Report check if it has a relation with Content
+     * If so delete from storage the file associated, and the Content itself.
+     *
+     * @return void
+     */
+    protected static function booted()
+    {
+        static::deleting(function ($report) {
+            if ($report->imagePath && Storage::disk('public')->exists($report->imagePath)) {
+                Storage::disk('public')->delete($report->imagePath);
+            }
+
+            if ($report->content) {
+                Storage::disk('public')->delete($report->content->filePath);
+                $report->content->delete();
+            }
+        });
+    }
+}

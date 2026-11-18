@@ -1,0 +1,250 @@
+<?php
+// This file is part of the app logic and has a short comment so it is easier to read.
+
+
+namespace App\Models;
+
+use App\ApplicationStatus;
+use App\Mail\ActivityApplied;
+use App\Mail\PaymentFailed;
+use App\PaymentStatus;
+use App\Models\User;
+use App\QuestionType;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
+
+class Application extends Model
+{
+    /** @use HasFactory<\Database\Factories\UserFactory> */
+    use HasFactory;
+
+    protected $fillable = [
+        'user_id',
+        'activity_id',
+        'email',
+        'phone',
+        'comment',
+        'status',
+        'participants',
+        'shop_order_id',
+        'shop_unit_price',
+    ];
+
+    protected $casts = [
+        'status' => ApplicationStatus::class,
+        'participants' => 'integer',
+        'shop_unit_price' => 'decimal:2',
+    ];
+
+    public function activity()
+    {
+        return $this->belongsTo(Activity::class);
+    }
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function payments()
+    {
+        return $this->hasMany(Payment::class);
+    }
+
+    public function guests()
+    {
+        return $this->hasMany(Guest::class);
+    }
+
+    public function answers()
+    {
+        return $this->hasMany(Answer::class);
+    }
+
+    // This function is called when the payment status changes
+    public function handleNewStatus(Payment $payment, ?PaymentStatus $previousPaymentStatus = null) {
+        if ($this->shop_order_id) {
+            if (in_array($payment->status, [PaymentStatus::open, PaymentStatus::pending, PaymentStatus::authorized], true)) {
+                return;
+            }
+
+            if ($this->status !== ApplicationStatus::Cancelled && $this->status !== ApplicationStatus::Reserve) {
+                $this->update(['status' => $payment->status === PaymentStatus::paid
+                    ? ApplicationStatus::Active : ApplicationStatus::Cancelled]);
+                $this->activity->updateApplications();
+            }
+
+            return;
+        }
+
+        if ($this->status === ApplicationStatus::Reserve) {
+            Log::info('[ApplicationModel] Payment updated while application remains on reserve list', [
+                'application_id' => $this->id,
+                'payment_id' => $payment->id,
+                'payment_status' => $payment->status->value,
+            ]);
+
+            return;
+        }
+
+        if (in_array($payment->status, [PaymentStatus::open, PaymentStatus::pending, PaymentStatus::authorized], true)) {
+            return;
+        }
+
+        // A paid application can already be active when an organizer is bringing a paying guest.
+        if ($payment->status === PaymentStatus::paid && in_array($this->status, [ApplicationStatus::Pending, ApplicationStatus::Active], true)) {
+            if ($previousPaymentStatus !== PaymentStatus::paid) {
+                $existingRegistration = $this->otherCurrentRegistration();
+
+                if ($existingRegistration) {
+                    $this->update(['status' => ApplicationStatus::Cancelled]);
+                    $this->activity->updateApplications();
+                    Log::warning('[ApplicationModel] A paid duplicate application was cancelled; review its payment for a refund.', [
+                        'application_id' => $this->id,
+                        'payment_id' => $payment->id,
+                        'existing_application_id' => $existingRegistration->id,
+                    ]);
+
+                    return;
+                }
+
+                $this->status = ApplicationStatus::Active;
+                Mail::to(config('mail.bestuur.address'), config('mail.bestuur.name'))->send(new ActivityApplied($this->activity, $this->user));
+            }
+        } else if($payment->status === PaymentStatus::paid && $this->status === ApplicationStatus::Cancelled) {
+            if (in_array($previousPaymentStatus, [PaymentStatus::failed, PaymentStatus::canceled, PaymentStatus::expired], true)) {
+                $existingRegistration = $this->otherCurrentRegistration();
+                if ($existingRegistration) {
+                    Log::warning('[ApplicationModel] A late-paid duplicate application was left cancelled; review its payment for a refund.', [
+                        'application_id' => $this->id,
+                        'payment_id' => $payment->id,
+                        'existing_application_id' => $existingRegistration->id,
+                    ]);
+
+                    return;
+                }
+
+                $activity = $this->activity;
+                $capacity = $activity->participants->capacity;
+                $status = $capacity === null || $capacity >= $this->participants
+                    ? ApplicationStatus::Active
+                    : ApplicationStatus::Reserve;
+
+                $this->update(['status' => $status]);
+                $activity->updateApplications();
+
+                Log::warning('[ApplicationModel] Mollie marked a previously failed payment as paid; application was restored.', [
+                    'application_id' => $this->id,
+                    'payment_id' => $payment->id,
+                    'previous_payment_status' => $previousPaymentStatus->value,
+                    'application_status' => $status->value,
+                ]);
+
+                Mail::to(config('mail.bestuur.address'), config('mail.bestuur.name'))
+                    ->send(new ActivityApplied($activity, $this->user, $status === ApplicationStatus::Reserve));
+            } else {
+                Log::debug("[ApplicationModel] Mollie reported paid for a cancelled application without a prior failed payment status.", [
+                    'application_id' => $this->id,
+                    'payment_id' => $payment->id,
+                    'previous_payment_status' => $previousPaymentStatus?->value,
+                ]);
+            }
+        } else { // If the payment failed, set the application status to cancelled and send a payment failed email
+            Log::debug("[ApplicationModel] handleNewStatus: Mollie Webhook received for payment", [
+                'payment' => $payment,
+                'status' => $this->status
+            ]);
+            $this->status = ApplicationStatus::Cancelled;
+            Mail::to(config('mail.bestuur.address'), config('mail.bestuur.name'))->send(new PaymentFailed($payment, $this->user));
+        }
+
+        // Update the applications
+        $this->activity->updateApplications();
+
+        $this->save();
+    }
+
+    private function otherCurrentRegistration(): ?self
+    {
+        if (!$this->exists) {
+            return null;
+        }
+
+        return self::query()
+            ->where('activity_id', $this->activity_id)
+            ->where('user_id', $this->user_id)
+            ->where('id', '!=', $this->id)
+            ->whereIn('status', [ApplicationStatus::Active, ApplicationStatus::Reserve])
+            ->first();
+    }
+
+    public function isOrganizerApplication(): bool
+    {
+        return (bool) ($this->activity?->organizer && $this->user?->name && str_contains($this->activity->organizer, $this->user->name));
+    }
+
+    public function isFreeOrganizerApplication(): bool
+    {
+        $activity = $this->activity;
+
+        if (!$activity || !$this->isOrganizerApplication() || (int) ($activity->free_organizer_count ?? 0) <= 0) {
+            return false;
+        }
+
+        $freeOrganizerApplications = $activity->applications
+            ->whereNotIn('status', [ApplicationStatus::Cancelled, ApplicationStatus::Reserve, ApplicationStatus::Pending])
+            ->sortBy('created_at')
+            ->filter(fn ($application) => $application->isOrganizerApplication())
+            ->take((int) $activity->free_organizer_count);
+
+        return $freeOrganizerApplications->contains('id', $this->id);
+    }
+
+    public function calculateBaseCost(): float
+    {
+        if ($this->shop_unit_price !== null) {
+            return $this->participants * (float) $this->shop_unit_price;
+        }
+
+        $activity = $this->activity;
+
+        if (!$activity) {
+            return 0.0;
+        }
+
+        if ($this->isFreeOrganizerApplication()) {
+            return max(0, $this->participants - 1) * (float) $activity->price;
+        }
+
+        return $this->participants * (float) $activity->price;
+    }
+
+    public function calculateExtrasCost(): float
+    {
+        return (float) $this->answers->sum(fn ($answer) => getAnswerPrice($answer));
+    }
+
+    public function calculateTotalPaid(): float
+    {
+        return (float) $this->payments
+            ->where('status', PaymentStatus::paid)
+            ->sum(fn ($payment) => (float) $payment->getPrice());
+    }
+
+    /**
+     * Calculate the total cost of the application based on activity price and answers to questions.
+     *
+     * @return float The total cost of the application.
+     */
+    public function calculateTotalCost(): float
+    {
+        return $this->calculateBaseCost() + $this->calculateExtrasCost();
+    }
+
+    public function calculateRemainingCost(): float
+    {
+        return max(0, $this->calculateTotalCost() - $this->calculateTotalPaid());
+    }
+}

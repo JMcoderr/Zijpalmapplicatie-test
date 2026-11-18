@@ -1,0 +1,91 @@
+<?php
+// This file is part of the app logic and has a short comment so it is easier to read.
+
+
+namespace App\Http\Requests;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class UpdateActivityRequest extends FormRequest
+{
+    /**
+     * Determine if the user is authorized to make this request.
+     */
+    public function authorize(): bool
+    {
+        // Only admins can update
+        return auth()->check() && auth()->user()->is_admin;
+    }
+
+    /**
+     * Get the validation rules that apply to the request.
+     *
+     * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
+     */
+    public function rules(): array
+    {
+        $isRecurring = $this->boolean('recurring');
+        
+        return [
+            // General details
+            'title' => ['nullable', 'string', 'max:255'],
+            'description' => ['nullable'],
+            'image-upload' => ['nullable', 'image'], // Optional for updates
+            'location' => ['nullable', 'string', 'max:255'],
+            'organizer' => ['nullable', 'string', 'max:255'],
+            'organizer_user_ids_present' => ['sometimes', 'boolean'],
+            'organizer_user_ids' => ['sometimes', 'array'],
+            'organizer_user_ids.*' => ['required', 'integer', 'distinct', Rule::exists('users', 'id')->where(fn ($query) => $query->whereNull('deleted_at')->orWhere('deleted_at', '>', now()))],
+            'maxParticipants' => ['nullable', 'integer', 'min:1'],
+            'maxGuests' => ['nullable', 'integer', 'min:0'],
+            'price' => ['nullable', 'regex:/^\d+([.,]\d{2})?$/'],
+            'whatsappUrl' => ['nullable', 'url'],
+            'free_organizer_count' => ['nullable', 'integer', 'min:0'],
+            'personalConfirmationEnabled' => ['nullable'],
+            'personalConfirmation' => ['nullable', 'required_if:personalConfirmationEnabled,on'],
+            'manual_budget' => ['nullable', 'regex:/^\d+([.,]\d{1,2})?$/'],
+            'manual_finance_entries' => ['nullable', 'array'],
+            'manual_finance_entries.*.description' => ['nullable', 'string', 'max:255'],
+            'manual_finance_entries.*.quantity' => ['nullable', 'numeric'],
+            'manual_finance_entries.*.unit_price' => ['nullable', 'numeric'],
+
+            // Times
+            'start-date' => ['nullable', 'date'],
+            'start-time' => ['nullable', 'date_format:H:i'],
+            'recurring_weekday' => [Rule::excludeIf(fn () => !$isRecurring), Rule::requiredIf(fn () => $isRecurring), 'nullable', 'integer', 'between:1,7'],
+            'end-date' => [Rule::requiredIf(fn () => !$isRecurring), 'nullable', 'date', 'after_or_equal:start-date'],
+            'end-time' => ['nullable', 'date_format:H:i'],
+            'registrationStart' => ['nullable', 'date'],
+            'registrationEnd' => ['nullable', 'date', 'after_or_equal:registrationStart', ...($isRecurring ? [] : ['before_or_equal:end-date'])],
+            'noCancellation' => ['nullable'],
+            'cancellationEnd' => ['nullable', 'date', 'after_or_equal:registrationStart', ...($isRecurring ? [] : ['before_or_equal:end-date'])],
+
+            // Questions
+            'questions' => ['nullable', 'array'],
+            'questions.*.type' => ['required_if:questions,array', 'in:select,text,number,checkbox'],
+            'questions.*.vraag' => ['required_if:questions,array', 'string', 'max:255'],
+            'questions.*.prijs' => ['nullable', 'regex:/^\d+([.,]\d{2})?$/'],
+            'questions.*.max' => ['nullable', 'integer', 'min:1'],
+
+            // Select question's options
+            'questions.*.options' => ['required_if:questions.*.type,select', 'array', 'min:2'],
+            'questions.*.options.*.optie' => ['required_with:questions.*.options', 'string', 'max:255'],
+            'questions.*.options.*.prijs' => ['nullable', 'regex:/^\d+([.,]\d{2})?$/'],
+        ];
+    }
+
+
+    public function messages(): array
+    {
+        return [
+            'end-date.required' => 'De einddatum is verplicht.',
+            'recurring_weekday.required' => 'Kies een dag van de week voor een herhalende activiteit.',
+            'recurring_weekday.integer' => 'De gekozen weekdag is ongeldig.',
+            'recurring_weekday.between' => 'Kies een geldige weekdag.',
+            'personalConfirmation.required_if' => 'Persoonlijke bevestiging is verplicht wanneer deze optie aan staat.',
+            'manual_budget.regex' => 'Begroot bedrag moet een geldig bedrag zijn.',
+            'manual_finance_entries.*.unit_price.regex' => 'Bijdrage per deelnemer moet in formaat 0.00 staan.',
+        ];
+    }
+}

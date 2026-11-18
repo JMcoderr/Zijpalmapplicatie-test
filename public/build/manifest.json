@@ -1,0 +1,53 @@
+{
+  "resources/css/app.css": {
+    "file": "css.css",
+    "src": "resources/css/app.css",
+    "isEntry": true,
+    "name": "css",
+    "names": [
+      "css.css"
+    ]
+  },
+  "resources/js/app.js": {
+    "file": "app.js",
+    "name": "app",
+    "src": "resources/js/app.js",
+    "isEntry": true
+  },
+  "resources/js/charity/forms.js": {
+    "file": "charityForms.js",
+    "name": "charityForms",
+    "src": "resources/js/charity/forms.js",
+    "isEntry": true
+  },
+  "resources/js/component-addons/toggle-tooltips.js": {
+    "file": "toggleTooltips.js",
+    "name": "toggleTooltips",
+    "src": "resources/js/component-addons/toggle-tooltips.js",
+    "isEntry": true
+  },
+  "resources/js/editor/editorjs.js": {
+    "file": "editorjs.js",
+    "name": "editorjs",
+    "src": "resources/js/editor/editorjs.js",
+    "isEntry": true
+  },
+  "resources/js/forms/display-uploaded-file-name.js": {
+    "file": "displayUploadedFileName.js",
+    "name": "displayUploadedFileName",
+    "src": "resources/js/forms/display-uploaded-file-name.js",
+    "isEntry": true
+  },
+  "resources/js/forms/display-uploaded-file.js": {
+    "file": "displayUploadedFile.js",
+    "name": "displayUploadedFile",
+    "src": "resources/js/forms/display-uploaded-file.js",
+    "isEntry": true
+  },
+  "resources/js/forms/toggle-required.js": {
+    "file": "toggleRequired.js",
+    "name": "toggleRequired",
+    "src": "resources/js/forms/toggle-required.js",
+    "isEntry": true
+  }
+}

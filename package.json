@@ -1,0 +1,31 @@
+{
+    "private": true,
+    "type": "module",
+    "engines": {
+        "node": ">=22.19.0"
+    },
+    "scripts": {
+        "dev": "vite",
+        "build": "vite build",
+        "watch": "vite build --watch"
+    },
+    "dependencies": {
+        "@editorjs/editorjs": "^2.31.4",
+        "@editorjs/header": "^2.8.8",
+        "@editorjs/image": "^2.10.3",
+        "@editorjs/inline-code": "^1.5.2",
+        "@editorjs/list": "^2.0.9",
+        "@editorjs/marker": "^1.4.0",
+        "@editorjs/table": "^2.4.5",
+        "@editorjs/underline": "^1.2.1",
+        "alpinejs": "^3.14.9",
+        "shiki": "^3.13.0",
+        "tailwindcss": "^4.1.12",
+        "tippy.js": "^6.3.7",
+        "tw-animate-css": "^1.3.7"
+    },
+    "devDependencies": {
+        "@tailwindcss/vite": "^4.1.12",
+        "vite": "^7.1.11"
+    }
+}
